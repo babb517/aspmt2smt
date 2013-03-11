@@ -25,7 +25,7 @@ public:
 
 		// TODO
 
-		_OPT_LENGTH = 0x00			///< Fake option used to determine the number of options available.
+		_OPT_LENGTH = 0x01			///< Fake option used to determine the number of options available.
 	};
 
 private:

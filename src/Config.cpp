@@ -21,14 +21,19 @@ Config::Config() {
 // Attempts to add an input file to the list.
 bool Config::addInput(std::string const& file) {
 	// TODO
+	return false;
 }
 
 // Attempts to open all of the input files and generate a compound input stream.
 std::istream* openInputs() {
 	// TODO
+
+	return NULL;
 }
 
 // Attempts to open the output file for writing.
 std::ostream* openOutput() {
 	// TODO
+
+	return NULL;
 }
