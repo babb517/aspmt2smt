@@ -19,3 +19,9 @@
 *.opensdf
 *.vcxproj.filters
 *.sdf
+/Debug
+
+# Temp files
+.*
+!/.gitignore
+*~

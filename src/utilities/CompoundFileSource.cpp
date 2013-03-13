@@ -10,8 +10,6 @@
 #include <boost/iostreams/device/file.hpp>
 
 #include "utilities/utils.h"
-#include "exceptions/FileNotFoundException.h"
-#include "exceptions/InvalidStateException.h"
 #include "CompoundFileSource.h"
 
 namespace utils {
@@ -40,49 +38,24 @@ CompoundFileSource::FileContext::~FileContext() {
 /******************************************************************************************/
 
 // Constructor
-CompoundFileSource::CompoundFileSource(std::list<std::string> const* inputs) {
-
-	std::list<std::string> unresolvedFiles;
-
-	if (inputs) {
-		for (std::list<std::string>::const_iterator it = inputs->begin(); it != inputs->end(); it++) {
-			try {
-				insert(*it);
-			} catch (FileNotFoundException e) {
-				unresolvedFiles.push_back(e.files().front());
-			}
-		}
-	}
-
-	if (unresolvedFiles.size()) {
-		// One or more files were not successfully resolved.
-		state(ERROR);
-		throw new FileNotFoundException(unresolvedFiles);
-	} else if (inputs && inputs->size()) {
-		state(GOOD);
-	} else {
-		// They didn't appear to specify any files.
-		// That's interesting.
-		state(CLOSED);
-	}
+CompoundFileSource::CompoundFileSource(void* nullptr_hack) {
+	state(CLOSED);
 }
 
 // Place a file on the stack.
-void CompoundFileSource::place(std::string const& filename, bool top, std::list<std::string> const* searchPath) {
+bool CompoundFileSource::place(std::string const& filename, bool top, std::list<std::string> const* searchPath) {
 	// State handling...
-	if (state() == ERROR) throw new InvalidStateException("The stream must be reset prior to adding inputs after an error has occurred. ");
-
+	if (state() == ERROR) return false;
 
 	// initialize the new context
 	FileContext* context = new FileContext(filename, "", NULL, 0);
 
-
 	// Step 1) Validate the name..
-	if (!boost::filesystem::native(filename)) {
-		// The file's name isn't a valid format.
-		delete context;
-		throw new FileNotFoundException(filename);
-	}
+	//if (!boost::filesystem::native(filename)) {
+	//	// The file's name isn't a valid format.
+	//	delete context;
+	//	return false;
+	//}
 
 
 	// Step 2) Attempt to resolve the file.
@@ -100,7 +73,7 @@ void CompoundFileSource::place(std::string const& filename, bool top, std::list<
 					found = true;
 					break;
 				}
-			} catch (boost::filesystem::filesystem_error e) {
+			} catch (boost::filesystem::filesystem_error& e) {
 				// Something went wrong with our filesystem shenanigans.
 				// I have no idea what this could be.
 				// TODO: Throw this to some sort of debugging output.
@@ -116,7 +89,7 @@ void CompoundFileSource::place(std::string const& filename, bool top, std::list<
 	if (!found) {
 		// We don't really know where the file is.
 		delete context;
-		throw new FileNotFoundException(filename);
+		return false;
 	}
 
 	// Resolve all symlinks and finalize the path we're using.
@@ -125,14 +98,14 @@ void CompoundFileSource::place(std::string const& filename, bool top, std::list<
 	// Step 3) Ensure the file is readable and open it.
 	try {
 		context->source = new boost::filesystem::ifstream(filepath);
-	} catch (std::exception e) {
+	} catch (std::exception& e) {
 		// We can't open the source stream.
 		// TODO: We should really throw this to some sort of debugging output.
 	}
 	if (!context->source || !context->source->good()) {
 		// We can't open the file for some reason.
 		delete context;
-		throw new FileNotFoundException(filename);
+		return false;
 	}
 
 	// make sure we copy our locality!
@@ -147,11 +120,12 @@ void CompoundFileSource::place(std::string const& filename, bool top, std::list<
 
 	// Indicate that our state is good to go.
 	state(GOOD);
+	return true;
 }
 
 // Pops the top file context off the stack.
 bool CompoundFileSource::nextFile() {
-	if (state() == ERROR) throw new InvalidStateException("The stream must be reset after an error has ocurred. ");
+	if (state() == ERROR) return false;
 
 	size_t size = mStack.size();
 
@@ -186,17 +160,16 @@ void CompoundFileSource::close() {
 
 // Places a number of buffered characters into the input stream to be reread later.
 bool CompoundFileSource::putback(char const* c, std::streamsize n) {
-	switch (state()) {
-	case ERROR:
-	case CLOSED:
-		return false;
+	FileContext* context;
+	std::streamsize newpos;
 
+	switch (state()) {
 	case END:
 	case GOOD:
 		// We should have the last file that we read from
 		// at the top of stack, so let's add it to the buffer
-		FileContext* context = mStack.front();
-		std::streamsize newpos = context->bufpos + n;
+		context = mStack.front();
+		newpos = context->bufpos + n;
 
 		if (n >= context->bufsize) {
 			// Overflow, expand the buffer.
@@ -210,6 +183,12 @@ bool CompoundFileSource::putback(char const* c, std::streamsize n) {
 		utils::reverse_copy(c, context->buf + context->bufpos, (size_t)n);
 		context->bufpos = (size_t)newpos;
 		return true;
+
+	case ERROR:
+	case CLOSED:
+	default:
+		return false;
+
 	}
 }
 
@@ -241,9 +220,10 @@ std::streamsize CompoundFileSource::read(char* c, std::streamsize n) {
 		if (context->bufpos) {
 			// we have something...
 			size = (context->bufpos  > needed) ? needed : context->bufpos;
-			utils::reverse_copy(context->buf + context->bufpos,c, (size_t)size);
+			utils::reverse_copy(context->buf + context->bufpos - 1,c, (size_t)size);
 			c += size;
 			needed -= size;
+			context->bufpos -= (size_t)size;
 		}
 
 		// now try the device...

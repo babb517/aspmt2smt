@@ -41,16 +41,18 @@ public:
 
 	/**
 		* @brief The definition of exactly what this device is capable of.
-		* source_tag		- The device is able to read characters.
-		* closable_tag		- The device should be closed when it's obsolete.
-		* peekable_tag		- The device allows for the next character to be seen without reading it.
-		* localizable_tag	- The device should be notified when the locality of the stream changes.
+		* source_tag				- The device is able to read characters.
+		* closable_tag				- The device should be closed when it's obsolete.
+		* peekable_tag				- The device allows for the next character to be seen without reading it.
+		* localizable_tag			- The device should be notified when the locality of the stream changes.
+		* optimally_buffered_tag	- The device provides a default buffer size to use.
 		*/
 	typedef struct
 		: boost::iostreams::source_tag,
 			boost::iostreams::closable_tag,
 			boost::iostreams::peekable_tag,
-			boost::iostreams::localizable_tag
+			boost::iostreams::localizable_tag,
+			boost::iostreams::optimally_buffered_tag
 	{ } category;
 
 private:
@@ -101,12 +103,11 @@ public:
 	/***********************************************************************/
 
 	/**
-		* @brief Basic Constructor.
-		* Initializes the filestream with the provided inputs, checking if the files are valid.
-		* @param inputs A list of inputs to use (or null to read from none).
-		* @throws FileNotFoundException if one or more of the files couldn't be resolved and opened.
-		*/
-	CompoundFileSource(std::list<std::string> const* inputs = NULL);
+	 * @brief Basic Constructor.
+ 	 * Initializes the filestream.
+	 * @param nullptr_hack a hack argument that can be used to allow boost::iostreams::stream.open to be called. Functionally serves no purpose.
+	 */
+	CompoundFileSource(void* nullptr_hack = NULL);
 
 	/**
 		* @brief Basic Destructor.
@@ -115,34 +116,31 @@ public:
 	virtual inline ~CompoundFileSource() { if (state() != CLOSED) close(); };
 
 	/***********************************************************************/
-	/* Public Methods */
 	/***********************************************************************/
 
 	/**
 		* @brief adds the specified file to the end of the effective input stream.
 		* @param filename The file to add.
 		* @param searchPath A list of locations to search for the file, or NULL to just check the working directory.
-		* @throws FileNotFoundException if the file could not be read.
-		* @throws InvalidStateException Thrown if the stream is in an error state and needs to be reset.
 		*/
-	inline void append(std::string const& filename, std::list<std::string> const* searchPath = NULL)
-		{ place(filename, false, searchPath); }
+	inline bool append(std::string const& filename, std::list<std::string> const* searchPath = NULL) throw(...) { 
+		return place(filename, false, searchPath);
+	}
 
 	/**
 		* @brief adds the specified file to the current location in the effective input stream.
 		* @param filename The file to add.
 		* @param searchPath A list of locations to search for the file, or NULL to just check the working directory.
-		* @throws FileNotFoundException if the file could not be read.
-		* @throws InvalidStateException Thrown if the stream is in an error state and needs to be reset.
 		*/
-	inline void insert(std::string const& filename, std::list<std::string> const* searchPath = NULL)
-		{ place(filename, true, searchPath); }
+	inline bool insert(std::string const& filename, std::list<std::string> const* searchPath = NULL) throw(...) {
+		return place(filename, true, searchPath);
+	}
 
 	/**
-		* @brief Attempts to move to the next file in the stream.
-		* @return True if there are still files in the stream. False otherwise.
-		* @throws InvalidStateException If the stream is in an error state and hasn't been reset.
-		*/
+	* @brief Attempts to move to the next file in the stream.
+	* @return True if there are still files in the stream. False otherwise.
+	* @throws InvalidStateException If the stream is in an error state and hasn't been reset.
+	*/
 	bool nextFile();
 
 
@@ -155,9 +153,15 @@ public:
 	inline std::string const* resolved() const { return mStack.size() ? &mStack.front()->resolved : NULL; }
 
 	/**
-		* @brief Determines the state of the stream.
-		* @returns The current state of the stream.
-		*/
+	 * A function used to tell boost that the input should be unbuffered (from their perspective).
+	 * This is to allow for us to push file contexts onto the read stack dynamically.
+	 */
+	inline std::streamsize optimal_buffer_size() const { return 0; }
+
+	/**
+	 * @brief Determines the state of the stream.
+	 * @returns The current state of the stream.
+	 */
 	inline state_t state() const { return mState; }
 
 	/// Determines if the stream is open.
@@ -167,46 +171,41 @@ public:
 	inline bool good() const { return state() == GOOD; }
 
 	/**
-		* @brief Attempts to reset the IO stream after an error has occurred.
-		*/
+	 * @brief Attempts to reset the IO stream after an error has occurred.
+	 */
 	void reset();
 
 	/**
-		* @brief Closes all input streams.
-		*/
+	 * @brief Closes all input streams.
+	 */
 	void close();
 
 	/**
-		* @brief Resets the stream, attempting to recover from an error that has occurred.
-		* @param clear Whether we should clear
-
-	/**
-		* @brief Puts the character back into the read stream.
-		* @param c The character to put back.
-		* @return True if successful, false otherwise.
-		*@
-		*/
+	 * @brief Puts the character back into the read stream.
+	 * @param c The character to put back.
+	 * @return True if successful, false otherwise.
+	 */
 	bool putback(char c) { return putback(&c, 1); }
 
 	/**
-		* @brief Places a number of buffered characters into the input stream to be reread later.
-		* @return True if successful, false otherwise.
-		*/
+	 * @brief Places a number of buffered characters into the input stream to be reread later.
+	 * @return True if successful, false otherwise.
+	 */
 	bool putback(char const* c, std::streamsize n);
 
 
 	/**
-		* @brief Imbues the device with the provided locality.
-		* @param the new locality.
-		*/
+	 * @brief Imbues the device with the provided locality.
+	 * @param the new locality.
+	 */
 	void imbue(std::locale const& loc);
 
 	/**
-		* @brief Attempts to read from the input stream.
-		* @param c The buffer to write to.
-		* @param n The number of characters to read.
-		* @returns The number of characters read, or -1 to indicate the end of stream.
-		*/
+	 * @brief Attempts to read from the input stream.
+	 * @param c The buffer to write to.
+	 * @param n The number of characters to read.
+	 * @returns The number of characters read, or -1 to indicate the end of stream.
+	 */
 	std::streamsize read(char* c, std::streamsize n);
 
 protected:
@@ -224,14 +223,12 @@ private:
 
 
 	/**
-		* @brief Resolves and opens the provided file name, placing the resulting context on the stack.
-		* @param filename The name of the file to open.
-		* @param top Whether the file should be placed at the top of the stack, or the bottom.
-		* @param searchPath A list of locations to search for the file, or NULL to just check the working directory.
-		* @throws FileNotFoundException Thrown if the file could not be resolved or opened. 
-		* @throws InvalidStateException Thrown if the stream is in an error state and needs to be reset.
-		*/
-	void place(std::string const& filename, bool top, std::list<std::string> const* searchPath = NULL);
+	 * @brief Resolves and opens the provided file name, placing the resulting context on the stack.
+	 * @param filename The name of the file to open.
+	 * @param top Whether the file should be placed at the top of the stack, or the bottom.
+	 * @param searchPath A list of locations to search for the file, or NULL to just check the working directory.
+	 */
+	bool place(std::string const& filename, bool top, std::list<std::string> const* searchPath = NULL);
 
 };
 
@@ -242,4 +239,4 @@ typedef boost::iostreams::stream<CompoundFileSource> CompoundFileStream;
 
 }
 
-	#endif
+#endif
